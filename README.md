@@ -4,38 +4,117 @@
 
 # AI Job Search
 
-An AI-powered job application framework built on [Claude Code](https://claude.com/claude-code). Fork it, fill in your profile, and let Claude evaluate job postings, tailor your CV, write cover letters, and prepare you for interviews.
+A local job-application workspace for [Claude Code](https://claude.com/claude-code). Fork it, fill in a candidate profile, and Claude evaluates postings, tailors a LaTeX CV, writes a cover letter, and can prepare interview notes.
 
-## What this is
+The application workflow (profile, fit evaluation, drafting, review) is language- and country-agnostic. Job discovery in this repo is aimed at Denmark: a web-search skill with Danish site queries, plus four portal skills (Jobindex, Jobnet, Akademikernes Jobbank, Jobdanmark) whose command-line tools are only partly present. See [Danish job portal tools](#danish-job-portal-tools).
 
-A structured workflow that turns Claude Code into a full-stack job application assistant. The core workflow (self-profiling, fit evaluation, and the drafter-reviewer application pipeline) is **language- and country-agnostic**. The job portal search skills are built for the Danish market (Jobindex, Jobnet, Akademikernes Jobbank, etc.), but the pattern is designed to be swapped for your local job boards.
+## What it does
+
+You work inside Claude Code, in this repository. Slash commands and skills are markdown instructions. They tell Claude which files to read, what to write, and which checks to run.
 
 ```
-/setup          /scrape              /apply <url>
-  |                |                     |
-  v                v                     v
-Fill in        Search job           Evaluate fit
-your profile   portals              Score & recommend
-  |                |                     |
-  v                v                     v
-Profile        Present matches      Draft CV + Cover Letter
-files ready    with fit ratings     (LaTeX, tailored)
-                   |                     |
-                   v                     v
-               Pick a match         Reviewer agent critiques
-               -> /apply            -> Revise -> Final output
+/setup                 /scrape                         /apply <url or text>
+  |                      |                                |
+  v                      v                                v
+Fill the profile     Web-search the queries          Score the posting
+from documents,      in search-queries.md            against the profile
+a CV, or an          Deduplicate and rate            (optional salary lookup)
+interview            high / medium / low
+  |                      |                                |
+  v                      v                                v
+Profile files        Table of new matches            Draft CV + cover letter
+and search queries   Pick a number for a             Reviewer critiques
+                     full fit evaluation             Revise, compile, inspect
 ```
 
-The framework encodes career guidance best practices, including structured evaluation criteria, forward-looking cover letter framing, and optional salary benchmarking.
+`/expand`, `/upskill`, and `/reset` sit beside that path. Interview notes come from the `job-application-assistant` skill and from `07-interview-prep.md`. `/apply` finishes when the CV and cover letter are ready.
+
+The instructions encode a scoring framework, forward-looking cover-letter framing, and an optional salary benchmark from data you supply.
+
+## Key features
+
+- **Three ways to build a profile.** `/setup` reads `documents/`, imports one CV, or walks through an interview. Re-running the documents path proposes additions and asks before it replaces anything that conflicts.
+- **Fit evaluation before drafting.** Five dimensions (skills, experience, behaviour and culture, location, career alignment) plus an optional salary lookup. `/apply` stops after the score unless you ask it to continue.
+- **Drafter and reviewer.** `/apply` writes the CV and cover letter, then sends both, with the posting, to a second agent that researches the company and returns edits. The drafter applies those edits and checks company-specific claims again before keeping them.
+- **Compiled PDF check.** The CV is built with `lualatex` and must be exactly two pages. The cover letter is built with `xelatex` and must be exactly one page, with the signature on that page. Orphaned job titles and mismatched bullet fonts are treated as failures and edited until the PDF is clean.
+- **Relevance-weighted cutting.** When a CV runs past two pages, lines are scored by relevance to the posting, whether the point appears elsewhere, and whether the cover letter depends on them. The lowest-scoring line goes first.
+- **Danish job search.** `/scrape` runs the queries in `search-queries.md`, skips jobs already seen or already tracked, and sorts what remains by a quick fit rating.
+- **Competency expansion.** `/expand` reads the documents folder and public URLs already in the profile (GitHub, portfolio, Kaggle, Google Scholar, and similar), looks up syllabi for named courses, and appends new skills only after you confirm them.
+- **Learning plan.** `/upskill` compares the profile with the tracker, or with one posting URL, and writes a gap heatmap plus a study plan whose links come from web search.
+- **Reset with a typed confirmation.** `/reset` lists what it will clear and waits until you type `RESET`.
+
+## Tech stack
+
+| Piece | Role |
+| --- | --- |
+| [Claude Code](https://claude.com/claude-code) | Runs the slash commands, skills, and the optional research agent |
+| LaTeX (`lualatex`, `xelatex`) | CV via [moderncv](https://ctan.org/pkg/moderncv) (banking style); cover letter via `cover.cls` and `fontspec` |
+| Python 3 (standard library) | `salary_lookup.py`. `openpyxl` is needed only for the Excel converter |
+| TypeScript on [Bun](https://bun.sh) | Portal CLIs (`@bunli/core`, `zod`, and `node-html-parser` on three of the four). The command modules are not in this tree; see below |
+| Markdown, CSV, JSON | Profile, search queries, application tracker, salary data, scrape state |
+
+No environment variables are read anywhere in this repository.
+
+## Repository layout
+
+```
+ai-job-search/
+├── CLAUDE.md                     # Candidate profile, workflow rules, verification checklist
+├── SETUP.md                      # Install notes, salary setup, LaTeX troubleshooting
+├── .claude/
+│   ├── commands/
+│   │   ├── setup.md              # /setup
+│   │   ├── apply.md              # /apply
+│   │   ├── expand.md             # /expand
+│   │   └── reset.md              # /reset
+│   ├── skills/
+│   │   ├── job-application-assistant/
+│   │   │   ├── SKILL.md
+│   │   │   ├── 01-candidate-profile.md
+│   │   │   ├── 02-behavioral-profile.md
+│   │   │   ├── 03-writing-style.md
+│   │   │   ├── 04-job-evaluation.md
+│   │   │   ├── 05-cv-templates.md
+│   │   │   ├── 06-cover-letter-templates.md
+│   │   │   └── 07-interview-prep.md
+│   │   ├── job-scraper/          # /scrape skill and search-queries.md
+│   │   └── upskill/              # /upskill skill
+│   ├── agents/
+│   │   └── gemini-research-expert.md
+│   └── settings.local.json       # Claude Code permission allow-list
+├── .agents/skills/               # Danish portal skills (see caveat below)
+│   ├── jobindex-search/
+│   ├── jobbank-search/           # Akademikernes Jobbank
+│   ├── jobdanmark-search/
+│   └── jobnet-search/
+├── cv/main_example.tex           # moderncv master template
+├── cover_letters/
+│   ├── cover.cls
+│   └── OpenFonts/fonts/          # Lato and Raleway
+├── documents/                    # Source material for /setup and /expand
+├── job_scraper/                  # seen_jobs.json is created here on first scrape
+├── job_search_tracker.csv        # Header row for applications
+├── upskill/                      # Markdown reports from /upskill
+├── salary_lookup.py
+└── tools/
+    ├── convert_salary_excel.py
+    └── README_SALARY_TOOL.md
+```
+
+`.claude/commands/` holds four slash commands: `/setup`, `/apply`, `/expand`, and `/reset`. `/scrape` and `/upskill` are skills. Their `SKILL.md` files list those phrases as the trigger.
+
+`gemini-research-expert` is an optional agent. Its instructions run research through `gemini -p "..."`, which needs the Gemini CLI on your `PATH`. `/apply` and `/scrape` leave this agent unused.
+
+`.gitignore` lists `.agents/` (the comment says "agent usage logs"). The skill trees are already tracked, so they stay in the clone. A new untracked file under `.agents/` is ignored unless you force-add it.
 
 ## Prerequisites
 
-- [Claude Code](https://claude.com/claude-code) (CLI)
-- Python 3.10+
-- [Bun](https://bun.sh) (for Danish job search CLI tools)
-- LaTeX distribution with `lualatex` and `xelatex`: [TeX Live](https://tug.org/texlive/) or [MiKTeX](https://miktex.org/). The CV compiles with `lualatex` (pdflatex often fails on modern MiKTeX installs with `fontawesome5` font-expansion errors); the cover letter compiles with `xelatex` because `cover.cls` requires `fontspec`.
+- [Claude Code](https://claude.com/claude-code). `SETUP.md` installs it with `npm install -g @anthropic-ai/claude-code`. You need an Anthropic API key or a Claude subscription. See the [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code).
+- A LaTeX distribution with `lualatex`, `xelatex`, `moderncv`, and `fontspec`: [TeX Live](https://tug.org/texlive/) or [MiKTeX](https://miktex.org/). On Debian or Ubuntu, `texlive-full` covers this. The CV is compiled with `lualatex` because `pdflatex` often fails on current MiKTeX with `fontawesome5` font-expansion errors. The cover letter needs `xelatex` because `cover.cls` loads `fontspec`.
+- Python 3, only if you want salary lookup or the Excel converter. `salary_lookup.py` uses the standard library. `SETUP.md` asks for 3.10 or newer.
+- [Bun](https://bun.sh), only if you are working on the portal CLIs. `/scrape` uses web search.
 
-## Quick start
+## Setup
 
 ### 1. Fork and clone
 
@@ -44,202 +123,261 @@ gh repo fork MadsLorentzen/ai-job-search --clone
 cd ai-job-search
 ```
 
-### 2. Install job search tools
+Or fork on GitHub and clone your fork.
 
-```bash
-cd .agents/skills/jobbank-search/cli && bun install && cd ../../../..
-cd .agents/skills/jobdanmark-search/cli && bun install && cd ../../../..
-cd .agents/skills/jobindex-search/cli && bun install && cd ../../../..
-cd .agents/skills/jobnet-search/cli && bun install && cd ../../../..
-```
-
-### 3. Set up your profile
+### 2. Start Claude Code and build your profile
 
 ```bash
 claude
-# Then inside Claude Code:
+```
+
+Then, inside Claude Code:
+
+```text
 /setup
 ```
 
-`/setup` offers three paths: read your `documents/` folder if you have one populated (CV PDF, LinkedIn export, diplomas, reference letters, past applications), import a single CV pasted in chat, or walk through an interview. It auto-detects what you have and asks. Documents-folder mode is idempotent and safe to re-run as you add more material; see `documents/README.md` for the layout.
+`/setup` scans `documents/` first and offers three paths.
 
-### 4. Search for jobs
+| Path | When to use it | What happens |
+| --- | --- | --- |
+| A. Documents folder | You have a CV, LinkedIn export, diplomas, references, or past applications | Reads `documents/`, checks dates and titles across files, and proposes additions. Conflicts are resolved one by one. Safe to re-run. |
+| B. Single CV | You have one CV to paste or `@`-mention | Extracts the structured fields and asks for the gaps |
+| C. Interview | You are starting from scratch | Walks through identity, education, experience, skills, behaviour, goals, references, and search queries |
+
+`/setup --section <name>` jumps to one interview section. `/setup --section search` rewrites the search queries without rebuilding the whole profile, and it suggests role titles your history might also fit.
+
+Files that end up populated. Numbered files live in `.claude/skills/job-application-assistant/`:
+
+| File | Contents |
+| --- | --- |
+| `CLAUDE.md` | Profile summary plus the workflow rules (the rules stay) |
+| `01-candidate-profile.md` | Education, experience, skills, publications, awards, references |
+| `02-behavioral-profile.md` | Assessment or answers turned into traits |
+| `04-job-evaluation.md` | Your strong, moderate, and weak skill areas, and career goals |
+| `05-cv-templates.md` | Role-specific profile statements |
+| `07-interview-prep.md` | STAR examples (Path A leaves stubs for you to finish) |
+| `cv/main_example.tex` | Name, contact details, and recent entries in the LaTeX template |
+| `.claude/skills/job-scraper/search-queries.md` | Site queries and commute tiers for `/scrape` |
+
+Path A can also append observed patterns to `03-writing-style.md` and `06-cover-letter-templates.md`. The existing rules in those two files stay as they are.
+
+Drop source files in before Path A. Layout and accepted formats are in `documents/README.md`:
+
+```text
+documents/
+├── cv/                 # PDF or .tex
+├── linkedin/           # LinkedIn "Save to PDF"
+├── diplomas/           # PDF
+├── references/         # PDF, .txt, or .md
+└── applications/
+    └── <company>_<role>/
+        ├── job_posting.md
+        ├── cover_letter.tex
+        ├── cv_draft.tex
+        └── outcome.md
+```
+
+Path A reads PDF, LaTeX, Markdown, and plain text. Export a `.docx` file or a scanned image to a text PDF before you add it.
+
+`SETUP.md` still describes the earlier two-path flow (CV import, then interview). The three-path flow above is the one in `.claude/commands/setup.md`. `SETUP.md` is still the right place for the install commands, the salary file, and LaTeX troubleshooting.
+
+### 3. Optional: salary data
+
+`/apply` runs `python salary_lookup.py "<Company>" --json` when `salary_data.json` exists in the repo root, and adds `--city` when the posting names one. If the file is missing, the script exits with an error and the workflow skips the benchmark.
+
+Create the file by hand, or convert a spreadsheet:
 
 ```bash
+pip install openpyxl
+python tools/convert_salary_excel.py path/to/salary-data.xlsx \
+  --source "My Salary Data 2025" \
+  --baseline 100 \
+  --baseline-desc "Index 100 = median salary"
+```
+
+The converter looks for a Company or Firma column, an optional City or By column, and pairs count and index columns when the headers match. Flags: `--output`, `--source`, `--baseline`, `--baseline-desc`. The JSON shape, including a hand-written example, is in `tools/README_SALARY_TOOL.md`. `salary_data.json` is gitignored.
+
+## Configuration
+
+Nothing in the Python scripts, the TypeScript helpers, or the Claude instructions reads environment variables. There are no API keys to set for the pieces that ship here. The portal helpers call public endpoints.
+
+Configuration is the markdown and data files. Numbered files live in `.claude/skills/job-application-assistant/`:
+
+| File | What you change |
+| --- | --- |
+| `CLAUDE.md` | Name, education, experience, skills, goals, deal-breakers |
+| `.claude/skills/job-application-assistant/01-candidate-profile.md` | Structured CV data |
+| `02-behavioral-profile.md` | Behavioural assessment or self-description |
+| `03-writing-style.md` | Tone rules (leave these unless you mean to change the house style) |
+| `04-job-evaluation.md` | Score bands, skill areas, motivation filters |
+| `05-cv-templates.md` | Profile-statement templates and LaTeX tailoring rules |
+| `06-cover-letter-templates.md` | Letter structure |
+| `07-interview-prep.md` | STAR examples and interview questions |
+| `.claude/skills/job-scraper/search-queries.md` | Queries, sites, and commute tiers |
+| `salary_data.json` | Your salary table, created locally and gitignored |
+| `job_search_tracker.csv` | Applications you choose to track |
+| `documents/` | Source files for `/setup` and `/expand` |
+
+`.claude/settings.local.json` allow-lists the `job-application-assistant` skill and `python`, `python3`, `curl`, and `bun` shell calls. It holds no secrets.
+
+### Files Git ignores
+
+`.gitignore` excludes generated and personal files, including:
+
+- `salary_data.json`
+- `job_scraper/seen_jobs.json` and `job_scraper/*.md`
+- `cv/main_*.tex` except `cv/main_example.tex`, and `cover_letters/cover_*.tex` / `Cover_*.tex`
+- compiled PDFs and LaTeX aux files
+- `upskill/*.md`
+- the contents of `documents/cv`, `documents/linkedin`, `documents/diplomas`, `documents/references`, and `documents/applications` (the `README` and `.gitkeep` files stay)
+- `node_modules/` and `bun.lock`
+
+`job_search_tracker.csv` is listed in `.gitignore` and is also already tracked (header row only). Git continues to see edits to a tracked file, so filled-in rows can still be committed. Treat the sheet as personal.
+
+## Running it locally
+
+Open the repo in Claude Code (`claude` from the repository root) and use the commands below. You can also ask in plain language. The `job-application-assistant` skill answers "evaluate this posting", "write a CV for [company]", "write a cover letter", and "help me prepare for an interview" as single steps.
+
+### Search
+
+```text
 /scrape
+/scrape data science
+/scrape broad
 ```
 
-This searches multiple job portals for positions matching your profile, deduplicates results, and presents them sorted by fit. Pick a match to run `/apply` on it directly.
+The skill reads `job_scraper/seen_jobs.json` (it creates `{"seen": {}}` if the file is missing), `job_search_tracker.csv`, and `search-queries.md`. It runs the top three query categories through web search. `broad` runs every category. A focus phrase prefers the matching category and adds a few queries for that phrase.
 
-### 5. Apply to a job
+For each promising hit it fetches the page and keeps title, company, location, date, URL, a short requirements note, and the deadline. It skips anything already in `seen_jobs.json` or already listed in the tracker, and anything outside the commute tiers or past its deadline. New jobs are labelled high, medium, or low match and shown in a table. Choosing a row number starts the `job-application-assistant` workflow: fit evaluation, then a CV and cover letter if you agree. That skill's full workflow also drafts interview notes from `07-interview-prep.md`. Applying can append a tracker row. `/apply` adds a reviewer pass and the PDF inspection, and it finishes when the letter and CV are presented.
+
+The template queries target `jobindex.dk` and `linkedin.com/jobs`. The site list in the same file also names `karriere.dk`, `jobfinder.dk`, and `akademikernes.dk`. Placeholder tokens such as `[YOUR_CITY]` stay until `/setup` replaces them. The date filter keeps postings from the last 14 days.
+
+### Apply
+
+```text
+/apply https://www.jobindex.dk/jobannonce/h0000000/example-role
+```
+
+If a portal blocks the fetch, paste the posting:
+
+```text
+/apply
+<paste the full job description>
+```
+
+`/apply` then:
+
+1. Reads the URL, or uses the pasted text. It records company, role, department, location, and whether the posting is Danish or English.
+2. Scores the posting with `04-job-evaluation.md` and `01-candidate-profile.md`. Salary lookup runs only when `salary_data.json` is present. You are asked whether to continue.
+3. Writes `cv/main_<company>.tex` (always English, moderncv banking, aimed at two pages) and `cover_letters/cover_<company>_<role>.tex` (the posting's language, `cover.cls`, aimed at one page). A named recipient is used when the posting has one. Otherwise the letter uses "Dear Hiring Manager" or the equivalent in the posting's language. Mentions of agentic coding name Claude Code.
+4. Sends the drafts and the posting to a reviewer agent. The reviewer researches the company and returns exact text replacements plus notes on missed keywords, company angles, passive phrasing, and tone. It is instructed to stay inside the real profile.
+5. Applies the edits. Company claims are checked with a fresh fetch or search before they are kept.
+6. Compiles both documents and reads the PDFs. It repeats until the CV is exactly two pages, with no job title stranded at the bottom of a page, and the cover letter is exactly one page, signature included, bullets in Raleway Medium. Build artefacts (`.aux`, `.log`, `.out`) are deleted afterwards.
+7. Prints the verification checklist from `CLAUDE.md` and a short list of tailoring decisions.
+
+Compile the same way yourself:
 
 ```bash
-/apply https://jobindex.dk/job/1234567
+cd cv && lualatex -interaction=nonstopmode main_<company>.tex
+cd ../cover_letters && xelatex -interaction=nonstopmode cover_<company>_<role>.tex
 ```
 
-If the URL can't be fetched (some job portals block automated access), you can paste the job description directly instead:
+The example CV compiles with `lualatex main_example.tex` from `cv/`. Fonts for the letter are already in `cover_letters/OpenFonts/fonts/` (Lato and Raleway). Compile from `cover_letters/` so `cover.cls` resolves `OpenFonts/fonts/`. `cover_letters/OpenFonts/cover.cls` is the same class with 2.54cm margins instead of 2.3cm. Its letter commands load `fonts/lato` and `fonts/raleway`. The preamble `\setmainfont` and `\setsansfont` in that copy still use `OpenFonts/fonts/`, the same paths as `cover_letters/cover.cls`. The workflow uses `cover_letters/cover.cls`.
+
+### Expand, upskill, reset
+
+```text
+/expand
+/upskill
+/upskill https://example.com/job/123
+/reset profile
+/reset documents
+/reset all
+```
+
+`/expand` only appends. It scans `documents/cv`, `documents/linkedin`, `documents/diplomas`, and `documents/references`, then any GitHub username or other URL already stored in `01-candidate-profile.md`. Named courses and certifications get a web lookup of the syllabus as well as an inferred competency list. You choose `all`, `review`, or `skip` before anything is written. New lines go to `01-candidate-profile.md` and `02-behavioral-profile.md`, each with a source tag. Inferred behavioural notes are labelled as inferred.
+
+`/upskill` with no URL reads every row of `job_search_tracker.csv`. In that mode a gap's score sums `(100 - fit_rating) / 100` across the jobs that mention the skill, so a weaker fit counts for more. A URL fetches that single posting and uses only that posting. The report is a heatmap (critical, high, medium, low) and a learning plan for the critical and high gaps. Medium gaps join the plan when fewer than five gaps are found in total. Each planned gap gets two or three resources taken from web search, plus a suggested study order. Aggregate reports go to `upskill/report-YYYY-MM-DD.md`. A single posting goes to `upskill/report-YYYY-MM-DD-<company>-<role>.md`. A later aggregate report diffs against the previous one. Report files are gitignored.
+
+`/reset profile` replaces `01-candidate-profile.md` and `02-behavioral-profile.md` with blank templates, clears profile statements in `05-cv-templates.md`, and clears STAR examples in `07-interview-prep.md`. It leaves `03-writing-style.md`, `04-job-evaluation.md`, `06-cover-letter-templates.md`, `CLAUDE.md`, and `cv/main_example.tex` as they are. `/reset documents` deletes files you added under the `documents/` subfolders and keeps `documents/README.md`. Both wait until you type `RESET`.
+
+### Salary lookup
 
 ```bash
-/apply <paste the full job description here>
+python salary_lookup.py "Novo Nordisk"
+python salary_lookup.py "Ørsted" --city "Fredericia"
+python salary_lookup.py "COWI" --json
+python salary_lookup.py --list-all
 ```
 
-This runs the full workflow: evaluate fit, draft CV + cover letter, review with a second agent, revise, and present the final output.
+Matching folds case, strips legal suffixes such as A/S and ApS, and treats æ, ø, and å as their ASCII spellings. A city filter drops rows whose city does not contain the text you passed.
 
-## Other commands
+### Tracker columns
 
-`/setup`, `/scrape`, and `/apply` form the core workflow. Two more commands extend it once your profile is in place:
+`job_search_tracker.csv` header:
 
-- **`/expand`** enriches your profile by scanning public sources you've already linked in it (GitHub repos, portfolio site, Kaggle, Google Scholar) and looking up syllabi for named courses and certifications. Discovered competencies are added to your profile with a source tag. Useful right after `/setup` to surface skills that documents alone don't make explicit.
-- **`/upskill`** analyzes the gap between your profile and your tracked job postings (or a single posting via `/upskill <URL>`). Produces a prioritized heatmap of skill gaps and a learning plan with web-searched study resources and time estimates. Useful for career planning between applications.
-
-`/reset` is also available, see [Starting over](#starting-over) below.
-
-## File structure
-
-```
-ai-job-search/
-├── CLAUDE.md                          # Main candidate profile + workflow rules
-├── .claude/
-│   ├── commands/
-│   │   ├── apply.md                   # /apply workflow (drafter-reviewer)
-│   │   ├── setup.md                   # /setup onboarding (documents folder, CV import, or interview)
-│   │   ├── expand.md                  # /expand competency enrichment from documents and online presence
-│   │   └── reset.md                   # /reset wipe profile data or documents folder
-│   ├── skills/
-│   │   ├── job-application-assistant/  # Core application skill
-│   │   │   ├── SKILL.md               # Skill definition
-│   │   │   ├── 01-candidate-profile.md # Your education, experience, skills
-│   │   │   ├── 02-behavioral-profile.md# PI/DISC/personality assessment
-│   │   │   ├── 03-writing-style.md    # Tone, structure, do's and don'ts
-│   │   │   ├── 04-job-evaluation.md   # Scoring framework for job fit
-│   │   │   ├── 05-cv-templates.md     # LaTeX CV structure + tailoring rules
-│   │   │   ├── 06-cover-letter-templates.md # LaTeX cover letter templates
-│   │   │   └── 07-interview-prep.md   # STAR examples + interview framework
-│   │   ├── job-scraper/               # Job search orchestration
-│   │   └── upskill/                   # /upskill skill gap analysis and learning plan
-│   └── settings.local.json            # Claude Code permissions
-├── .agents/skills/                    # Job portal CLI tools (Denmark)
-│   ├── jobbank-search/                # Akademikernes Jobbank
-│   ├── jobdanmark-search/             # Jobdanmark.dk
-│   ├── jobindex-search/               # Jobindex.dk
-│   └── jobnet-search/                 # Jobnet.dk (government portal)
-├── cv/
-│   └── main_example.tex               # moderncv LaTeX template
-├── cover_letters/
-│   ├── cover.cls                      # Custom cover letter LaTeX class
-│   └── OpenFonts/                     # Lato + Raleway fonts
-├── documents/                         # Career source materials for /setup Path A and /expand
-│   ├── README.md                      # Folder layout instructions
-│   ├── cv/                            # Master CV (PDF or .tex)
-│   ├── linkedin/                      # LinkedIn profile export (PDF)
-│   ├── diplomas/                      # Degree certificates and transcripts
-│   ├── references/                    # Reference letters
-│   └── applications/                  # Past application records (<company>_<role>/)
-├── salary_lookup.py                   # Salary benchmarking tool (BYO data)
-├── tools/
-│   ├── convert_salary_excel.py        # Convert salary Excel to JSON
-│   └── README_SALARY_TOOL.md          # Salary tool setup instructions
-├── job_scraper/                       # Scraper state (seen jobs, results)
-├── upskill/                           # /upskill report output (markdown reports per run)
-├── job_search_tracker.csv             # Application tracking spreadsheet
-└── SETUP.md                           # Detailed setup guide
+```text
+date,company,sector,role,role_type,channel,status,contact_person,fit_rating,notes,cv_file,cover_letter_file,source
 ```
 
-## How `/apply` works
+`/scrape` reads it to skip roles you have already recorded, and can append a row when you decide to apply. `/upskill` in aggregate mode reads `role`, `sector`, `notes`, `fit_rating`, and `source`.
 
-The `/apply` command runs a **drafter-reviewer workflow** with mandatory PDF compilation:
+## Danish job portal tools
 
-1. **Parse** the job posting (URL or text)
-2. **Evaluate fit** against your profile (skills, experience, culture, location, career alignment)
-3. **Draft** a tailored CV and cover letter in LaTeX
-4. **Spawn a reviewer agent** that researches the company and critiques the drafts
-5. **Revise** based on the reviewer's feedback
-6. **Compile and inspect** both PDFs: lualatex for the CV, xelatex for the cover letter. Claude reads the rendered pages and iterates on the LaTeX until the CV is exactly 2 pages with no orphaned entry titles, and the cover letter is exactly 1 page with the signature visible and fonts consistent.
-7. **Present** the final output with a verification checklist
+Four skills under `.agents/skills/` document live search of Danish boards. Each has a `SKILL.md`, a `cli/README.md`, a Bun `package.json`, `src/cli.ts`, `src/helpers.ts`, and `cli/tests/helpers.ts`. Jobindex and Jobbank also have a `url-reference.md`. None of the helpers send credentials. Jobnet's fetch sets `x-csrf: 1`. Jobindex's HTML fetch and Jobbank's fetch send a browser User-Agent. All four retry HTTP 429 and 5xx responses.
 
-All claims in the CV and cover letter are verified against your actual profile. The system never fabricates skills or experience.
+| Skill | Board | Commands described in the skill | What the committed TypeScript actually contains |
+| --- | --- | --- | --- |
+| `jobindex-search` | [jobindex.dk](https://www.jobindex.dk/) | `search`, `detail` | JSON fetch against `https://www.jobindex.dk`, HTML fetch of `/jobannonce/<id>`, and parsers for the listing HTML |
+| `jobbank-search` | [jobbank.dk](https://jobbank.dk) (Akademikernes Jobbank) | `search`, `detail` | RSS fetch of `https://jobbank.dk/job/rss` and description parsing |
+| `jobdanmark-search` | [jobdanmark.dk](https://jobdanmark.dk) | `search`, `detail`, `categories`, `autocomplete`, `locations` | GET and POST helpers for `https://jobdanmark.dk` |
+| `jobnet-search` | [jobnet.dk](https://jobnet.dk) (STAR) | `search`, `detail`, `occupations`, `suggestions` | JSON fetch against `https://jobnet.dk/bff` |
 
-### What makes this workflow different
+Each `src/cli.ts` imports those commands from `./commands/*.js`. That `commands/` directory is not in the repository, so `bun run src/cli.ts` cannot start. `bun install` only installs the packages named in `package.json` (`@bunli/core`, `@bunli/utils`, `zod`, and, except for Jobnet, `node-html-parser`).
 
-- **PDF verification loop.** Most LaTeX-resume templates produce "looks fine in the .tex" output that breaks in the PDF: job titles orphan to the next page, cover letters spill onto page 2, bullet fonts silently fall back to the body font. The `/apply` command compiles and visually inspects every PDF and applies targeted fixes (`\needspace`, `\enlargethispage`, font-matching wrappers for list items) until the layout is clean. This runs automatically on every application.
-- **Relevance-weighted CV cutting.** When a CV overflows 2 pages, the workflow does not cut mechanically from the "oldest" section. It scores each candidate line by (a) relevance to the target posting, (b) uniqueness in the document, and (c) whether the cover letter depends on it, and cuts the lowest-total-score line first. An older-role bullet that hits posting keywords survives ahead of a recent-role bullet that does not.
-- **Drafter-reviewer separation.** The drafter writes; a second Claude agent, spawned with a fresh context, researches the company and critiques the drafts. The drafter then revises. This catches missed keywords, weak framing, and generic language that a single pass often leaves in.
-- **Token-efficient reviewer dispatch.** The reviewer agent receives drafts inline rather than re-reading them, and the verification checklist runs once at the end of the workflow rather than being duplicated by both agents. Note: the new compile-and-inspect step in Step 5 spends some of those savings on PDF rendering and layout iteration — the workflow trades some end-to-end token cost for a real reduction in broken PDFs reaching the user.
+The skill files invoke the CLIs as `bun run skills/<name>/cli/src/cli.ts`. In this repository those files live under `.agents/skills/<name>/cli/`.
 
-## Customization
+`/scrape` uses web search and page fetch, as described above. Per-flag documentation (Jobindex `jobage` and `sort`, Jobbank type and region codes, Jobdanmark categories, Jobnet region and ESCO filters) lives in each `SKILL.md` and `cli/README.md`. Those docs describe the intended CLI. They become a running interface once the command modules are added.
 
-### Which files to edit manually
+Install dependencies, if you are extending the tools:
 
-If you prefer editing files directly instead of using `/setup`:
-
-| File | What to change |
-|------|---------------|
-| `CLAUDE.md` | Your full profile (name, education, experience, skills, goals) |
-| `01-candidate-profile.md` | Structured version of your CV data |
-| `02-behavioral-profile.md` | Your behavioral assessment or self-assessment |
-| `04-job-evaluation.md` | Skill match areas, career goals, motivation filters |
-| `05-cv-templates.md` | Profile statement templates for different role types |
-| `07-interview-prep.md` | Your STAR examples from actual experience |
-| `search-queries.md` | Job search queries for your skills and location |
-
-### Updating your search queries
-
-As your priorities evolve, you can reconfigure just the job search without re-running the full profile setup:
-
-```
-/setup --section search
+```bash
+for tool in jobbank-search jobdanmark-search jobindex-search jobnet-search; do
+  (cd .agents/skills/$tool/cli && bun install)
+done
 ```
 
-This re-runs the search configuration interview: which roles to target, which skills to search for, which locations, and which portals. It also suggests role types you may not have considered based on your profile.
+Remember the `.gitignore` rule for `.agents/` before you expect new files there to show up in `git status`.
 
-### LaTeX templates
+## Tests
 
-The CV uses [moderncv](https://ctan.org/pkg/moderncv) (banking style). The cover letter uses a custom `cover.cls` with Lato/Raleway fonts. You can replace these with your own templates; just update the guidance in `05-cv-templates.md` and `06-cover-letter-templates.md`.
+Each portal `package.json` defines:
 
-### Job search tools
-
-The four CLI tools in `.agents/skills/` are specific to the **Danish job market** (Jobbank, Jobdanmark, Jobindex, Jobnet). They demonstrate the pattern for building job portal integrations. If you're in a different country, you can build equivalent tools for your local job portals using the same structure.
-
-### Salary benchmarking
-
-The salary tool works with any salary data you provide (union statistics, Glassdoor exports, personal research, etc.). See `tools/README_SALARY_TOOL.md` for the expected format and setup. If you don't have salary data, the salary step is simply skipped.
-
-### Starting over
-
-To wipe your profile data and start fresh:
-
-```
-/reset profile    # clears skill files, preserves framework rules
-/reset documents  # deletes files from documents/ folder
-/reset all        # both
+```bash
+bun run test        # bun test --timeout 30000
+bun run typecheck   # tsc --noEmit
 ```
 
-`/reset` shows exactly what will be deleted and requires you to type `RESET` to confirm. Nothing is deleted until you do.
+`cli/tests/helpers.ts` spawns `src/cli.ts` and parses JSON from its stdout. The repository contains that helper and no `*.test.ts` files, so `bun test` has no cases to run. There is no `tsconfig.json` in these packages. `typescript` is listed as a dev dependency. The entrypoints import `./commands/*.js` files that are not in the tree. The Python tools have no automated tests. Run `salary_lookup.py` and `tools/convert_salary_excel.py` directly.
 
-## Tips for better results
+## Customising the templates
 
-### Profile depth matters
+The CV class is moderncv, banking style, blue. The letter class is `cover.cls` (Lato for the body defaults, Raleway for the letter text). Replace either, then update `05-cv-templates.md` and `06-cover-letter-templates.md` so later `/apply` runs follow the new structure.
 
-The single biggest factor in output quality is how much detail you put into your profile. A thin profile produces generic applications; a detailed one enables genuinely tailored results.
+If you are outside Denmark, point `search-queries.md` at the boards you use, or add a portal skill beside the four Danish ones. `/apply` reads the profile, the posting, and the LaTeX templates.
 
-- **Role descriptions:** Don't just list job titles. Describe what you actually did in each position: specific projects, tools used, responsibilities, and measurable achievements. The more material you provide, the more precisely the system can reframe your experience for different roles.
-- **Skills in context:** Instead of listing "Python" or "project management," describe how and where you applied them. "Built ML pipelines for customer churn prediction in Python using scikit-learn" gives the system far more to work with than "Python, machine learning."
-- **All onboarding paths work:** Whether you point `/setup` at your `documents/` folder, paste a single CV, or walk through the interview, the principle is the same: richer input produces sharper output.
+## Tips
 
-### Career path discovery
+Detail in the profile is what makes a tailored letter possible. For each role, name the projects, the tools, and the outcome. "Built a churn model in Python with scikit-learn" gives the drafter a concrete line to reframe. A bare "Python" leaves it with a label.
 
-The framework supports two distinct modes of job searching:
-
-- **Explicit targeting:** You know which roles or sectors you want. The system helps refine and prioritize based on fit.
-- **Latent opportunity discovery:** By analyzing your full history (not just job titles, but the actual work you did), the system can surface career paths you haven't considered. Transferable skills that map to unexpected industries, patterns in what you enjoyed or excelled at, or emerging roles that combine your domain expertise with new technology.
-
-To get the most from this, invest time during `/setup` in describing not just your experience, but what energized you, what drained you, and what you'd want more of. This context directly shapes how the system evaluates fit and which roles it surfaces during `/scrape`.
+During `/setup`, say what kind of work you want more of and what you want to avoid. Those answers feed the motivation filter in `04-job-evaluation.md` and the role suggestions in the search section. The search interview will also propose adjacent titles (for example a technical consultant or team-lead search) from skills you have already described.
 
 ## Acknowledgements
 
-- [Mikkel Krogholm](https://github.com/mikkelkrogsholm) ([skills repo](https://github.com/mikkelkrogsholm/skills)) for the job search CLI skills
+- [Mikkel Krogholm](https://github.com/mikkelkrogsholm) ([skills repo](https://github.com/mikkelkrogsholm/skills)) for the job-search CLI skills
 - Built with [Claude Code](https://claude.com/claude-code) by [Anthropic](https://anthropic.com)
 
-## License
+## Licence
 
-MIT
+MIT. Copyright (c) 2026 Mads Lorentzen. See `LICENSE`.
