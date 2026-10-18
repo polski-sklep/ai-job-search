@@ -283,7 +283,7 @@ cd cv && lualatex -interaction=nonstopmode main_<company>.tex
 cd ../cover_letters && xelatex -interaction=nonstopmode cover_<company>_<role>.tex
 ```
 
-The example CV compiles with `lualatex main_example.tex` from `cv/`. Fonts for the letter are already in `cover_letters/OpenFonts/fonts/` (Lato and Raleway). Compile from `cover_letters/` so `cover.cls` resolves `OpenFonts/fonts/`. `cover_letters/OpenFonts/cover.cls` is the same class with font paths relative to the `OpenFonts` directory and slightly wider margins. The workflow uses `cover_letters/cover.cls`.
+The example CV compiles with `lualatex main_example.tex` from `cv/`. Fonts for the letter are already in `cover_letters/OpenFonts/fonts/` (Lato and Raleway). Compile from `cover_letters/` so `cover.cls` resolves `OpenFonts/fonts/`. `cover_letters/OpenFonts/cover.cls` is the same class with 2.54cm margins instead of 2.3cm. Its letter commands load `fonts/lato` and `fonts/raleway`. The preamble `\setmainfont` and `\setsansfont` in that copy still use `OpenFonts/fonts/`, the same paths as `cover_letters/cover.cls`. The workflow uses `cover_letters/cover.cls`.
 
 ### Expand, upskill, reset
 
@@ -325,11 +325,11 @@ date,company,sector,role,role_type,channel,status,contact_person,fit_rating,note
 
 ## Danish job portal tools
 
-Four skills under `.agents/skills/` document live search of Danish boards. Each has a `SKILL.md`, a `cli/README.md`, a Bun `package.json`, `src/cli.ts`, `src/helpers.ts`, and `cli/tests/helpers.ts`. Jobindex and Jobbank also have a `url-reference.md`. No authentication is implemented. The helpers retry HTTP 429 and 5xx responses.
+Four skills under `.agents/skills/` document live search of Danish boards. Each has a `SKILL.md`, a `cli/README.md`, a Bun `package.json`, `src/cli.ts`, `src/helpers.ts`, and `cli/tests/helpers.ts`. Jobindex and Jobbank also have a `url-reference.md`. None of the helpers send credentials. Jobnet's fetch sets `x-csrf: 1`. Jobindex's HTML fetch and Jobbank's fetch send a browser User-Agent. All four retry HTTP 429 and 5xx responses.
 
 | Skill | Board | Commands described in the skill | What the committed TypeScript actually contains |
 | --- | --- | --- | --- |
-| `jobindex-search` | [jobindex.dk](https://www.jobindex.dk/) | `search`, `detail` | JSON fetch against `https://www.jobindex.dk` and HTML fetch for a listing page |
+| `jobindex-search` | [jobindex.dk](https://www.jobindex.dk/) | `search`, `detail` | JSON fetch against `https://www.jobindex.dk`, HTML fetch of `/jobannonce/<id>`, and parsers for the listing HTML |
 | `jobbank-search` | [jobbank.dk](https://jobbank.dk) (Akademikernes Jobbank) | `search`, `detail` | RSS fetch of `https://jobbank.dk/job/rss` and description parsing |
 | `jobdanmark-search` | [jobdanmark.dk](https://jobdanmark.dk) | `search`, `detail`, `categories`, `autocomplete`, `locations` | GET and POST helpers for `https://jobdanmark.dk` |
 | `jobnet-search` | [jobnet.dk](https://jobnet.dk) (STAR) | `search`, `detail`, `occupations`, `suggestions` | JSON fetch against `https://jobnet.dk/bff` |
@@ -355,11 +355,11 @@ Remember the `.gitignore` rule for `.agents/` before you expect new files there 
 Each portal `package.json` defines:
 
 ```bash
-bun test --timeout 30000
-bunx tsc --noEmit
+bun run test        # bun test --timeout 30000
+bun run typecheck   # tsc --noEmit
 ```
 
-`cli/tests/helpers.ts` spawns `src/cli.ts` and parses JSON from its stdout. The repository contains that helper and no `*.test.ts` files, so `bun test` has no cases to run. `typescript` is a dev dependency from `bun install`. A typecheck stops on the missing `./commands/*.js` imports. The Python tools have no automated tests. Run `salary_lookup.py` and `tools/convert_salary_excel.py` directly.
+`cli/tests/helpers.ts` spawns `src/cli.ts` and parses JSON from its stdout. The repository contains that helper and no `*.test.ts` files, so `bun test` has no cases to run. There is no `tsconfig.json` in these packages. `typescript` is listed as a dev dependency. The entrypoints import `./commands/*.js` files that are not in the tree. The Python tools have no automated tests. Run `salary_lookup.py` and `tools/convert_salary_excel.py` directly.
 
 ## Customising the templates
 
